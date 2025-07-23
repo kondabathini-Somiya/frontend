@@ -1,53 +1,85 @@
-# backend/app.py
+# app.py
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import gradio as gr
+import requests
 
-app = Flask(__name__)
-CORS(app)  # Allow cross-origin requests (needed for Streamlit frontend)
+BASE_URL = "https://flaskuser-1q4s.onrender.com"
 
-# Simulated "Database"
-data_store = [
-    {"id": 1, "name": "Alice", "email": "alice@example.com"},
-    {"id": 2, "name": "Bob", "email": "bob@example.com"}
-]
+# --- Backend interaction functions ---
 
-# Auto-increment ID
-next_id = 3
+def fetch_data():
+    res = requests.get(f"{BASE_URL}/get_data")
+    return res.json() if res.status_code == 200 else []
 
+def add_user(name, email):
+    res = requests.post(f"{BASE_URL}/add_data", json={"name": name, "email": email})
+    return "✅ User added successfully!" if res.ok else "❌ Failed to add user."
 
-@app.route('/get_data', methods=['GET'])
-def get_data():
-    return jsonify(data_store), 200
+def update_user(user_id, name, email):
+    res = requests.put(f"{BASE_URL}/update_data/{user_id}", json={"name": name, "email": email})
+    return "✅ User updated!" if res.ok else "❌ Update failed."
 
-
-@app.route('/add_data', methods=['POST'])
-def add_data():
-    global next_id
-    item = request.get_json()
-    item["id"] = next_id
-    data_store.append(item)
-    next_id += 1
-    return jsonify({"message": "Data added successfully"}), 201
+def delete_user(user_id):
+    res = requests.delete(f"{BASE_URL}/delete_data/{user_id}")
+    return "✅ User deleted!" if res.ok else "❌ Delete failed."
 
 
-@app.route('/update_data/<int:item_id>', methods=['PUT'])
-def update_data(item_id):
-    updated_item = request.get_json()
-    for item in data_store:
-        if item["id"] == item_id:
-            item["name"] = updated_item.get("name", item["name"])
-            item["email"] = updated_item.get("email", item["email"])
-            return jsonify({"message": "Data updated"}), 200
-    return jsonify({"message": "Item not found"}), 404
+# --- Gradio UI functions ---
+
+def add_user_interface(name, email):
+    return add_user(name, email)
+
+def list_users_interface():
+    data = fetch_data()
+    if not data:
+        return "No users found."
+
+    output = ""
+    for user in data:
+        output += f"### ID: {user['id']}\n"
+        output += f"- Name: {user['name']}\n"
+        output += f"- Email: {user['email']}\n"
+        output += f"---\n"
+    return output
 
 
-@app.route('/delete_data/<int:item_id>', methods=['DELETE'])
-def delete_data(item_id):
-    global data_store
-    data_store = [item for item in data_store if item["id"] != item_id]
-    return jsonify({"message": "Item deleted"}), 200
+def update_user_interface(user_id, name, email):
+    return update_user(user_id, name, email)
+
+def delete_user_interface(user_id):
+    return delete_user(user_id)
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+# --- Gradio Blocks layout ---
+
+with gr.Blocks() as demo:
+    gr.Markdown("## 📋 User Management Dashboard")
+
+    with gr.Tab("View Users"):
+        view_output = gr.Markdown()
+        refresh_btn = gr.Button("🔄 Refresh List")
+        refresh_btn.click(fn=list_users_interface, outputs=view_output)
+
+    with gr.Tab("Add User"):
+        name_input = gr.Textbox(label="Name")
+        email_input = gr.Textbox(label="Email")
+        add_btn = gr.Button("➕ Add User")
+        add_output = gr.Textbox(label="Status", interactive=False)
+        add_btn.click(fn=add_user_interface, inputs=[name_input, email_input], outputs=add_output)
+
+    with gr.Tab("Update User"):
+        uid_input = gr.Number(label="User ID")
+        name_update = gr.Textbox(label="New Name")
+        email_update = gr.Textbox(label="New Email")
+        update_btn = gr.Button("✏️ Update User")
+        update_output = gr.Textbox(label="Status", interactive=False)
+        update_btn.click(fn=update_user_interface, inputs=[uid_input, name_update, email_update], outputs=update_output)
+
+    with gr.Tab("Delete User"):
+        del_id_input = gr.Number(label="User ID")
+        delete_btn = gr.Button("🗑️ Delete User")
+        delete_output = gr.Textbox(label="Status", interactive=False)
+        delete_btn.click(fn=delete_user_interface, inputs=del_id_input, outputs=delete_output)
+
+
+demo.launch()
